@@ -1,0 +1,1985 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frost & Brew POS</title>
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['DM Sans', 'sans-serif'], mono: ['Space Mono', 'monospace'] },
+                    colors: {
+                        brand: { 50:'#fff1f2',100:'#ffe4e6',200:'#fecdd3',300:'#fda4af',400:'#fb7185',500:'#f43f5e',600:'#e11d48',700:'#be123c',900:'#881337' },
+                        surface: { 50:'#fafafa',100:'#f4f4f5',200:'#e4e4e7',300:'#d4d4d8',400:'#a1a1aa',500:'#71717a',600:'#52525b',700:'#3f3f46',800:'#27272a',900:'#18181b',950:'#09090b' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        html, body { height: 100%; margin: 0; overflow: hidden; }
+        .sidebar-item { transition: all 0.2s; }
+        .sidebar-item:hover, .sidebar-item.active { background: rgba(244, 63, 94, 0.12); color: #f43f5e; }
+        .card-hover { transition: transform 0.2s, box-shadow 0.2s; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.08); }
+        .dark .card-hover:hover { box-shadow: 0 8px 25px rgba(0,0,0,0.4); }
+        .fade-in { animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .toast { animation: slideIn 0.3s ease, slideOut 0.3s ease 2.7s; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 3px; }
+        .dark ::-webkit-scrollbar-thumb { background: #52525b; }
+        .receipt-print { font-family: 'Space Mono', monospace; line-height: 1.4; color: #000; }
+        
+        @media print {
+            @page { margin: 0; } /* Removes Browser Date & URL headers */
+            body { background: white; margin: 0; padding: 0; }
+            body * { visibility: hidden; }
+            
+            #receiptContentWrapper, #receiptContentWrapper * { 
+                visibility: visible; 
+            }
+            
+            #receiptContentWrapper {
+                position: fixed;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                background: white;
+                margin: 0;
+                padding: 0;
+                z-index: 9999;
+            }
+            
+            #receiptContent {
+                width: 80mm; /* Standard Thermal POS Printer Width */
+                max-width: 100%;
+                margin: 0;
+                padding: 4mm;
+                background: white;
+                color: black;
+            }
+            
+            .no-print { display: none !important; }
+        }
+        /* Remove arrows from number input */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        
+        /* Custom toggle switch */
+        .toggle-checkbox:checked { right: 0; border-color: #10b981; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #10b981; }
+        .toggle-checkbox { right: 0; z-index: 1; border-color: #e5e7eb; transition: all 0.3s; }
+        .toggle-label { transition: all 0.3s; }
+    </style>
+</head>
+<body class="h-full bg-surface-50 dark:bg-surface-950 text-surface-900 dark:text-surface-50 font-sans overflow-hidden transition-colors duration-200">
+    <div id="app" class="h-full flex">
+        
+        <aside id="sidebar" class="w-64 h-full bg-white dark:bg-surface-900 border-r border-surface-200 dark:border-surface-800 flex flex-col shrink-0 z-30 transition-transform duration-300 absolute lg:relative -translate-x-full lg:translate-x-0">
+            <div class="p-5 border-b border-surface-200 dark:border-surface-800 flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <img id="sidebarLogo" src="" alt="Logo" class="w-10 h-10 object-contain hidden">
+                    <div>
+                        <h1 id="brandName" class="text-xl font-bold text-brand-500">Frost & Brew</h1>
+                        <p id="brandTagline" class="text-xs text-surface-500 mt-0.5">Ice Cream Parlour & Café</p>
+                    </div>
+                </div>
+                <button onclick="toggleSidebar()" class="lg:hidden text-surface-500 hover:text-brand-500">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+                <button onclick="navigate('dashboard')" data-nav="dashboard" class="sidebar-item active w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="layout-dashboard" class="w-4 h-4"></i>Dashboard</button>
+                <button onclick="navigate('pos')" data-nav="pos" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="shopping-cart" class="w-4 h-4"></i>POS / Billing</button>
+                <button onclick="navigate('tables')" data-nav="tables" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="grid" class="w-4 h-4"></i>Tables & Takeaway</button>
+                <button onclick="navigate('orders')" data-nav="orders" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="receipt" class="w-4 h-4"></i>Orders History</button>
+                <button onclick="navigate('kot')" data-nav="kot" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="chef-hat" class="w-4 h-4"></i>Kitchen (KOT)</button>
+                <button onclick="navigate('menu')" data-nav="menu" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="utensils" class="w-4 h-4"></i>Menu</button>
+                <button onclick="navigate('inventory')" data-nav="inventory" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="package" class="w-4 h-4"></i>Inventory</button>
+                <button onclick="navigate('customers')" data-nav="customers" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="users" class="w-4 h-4"></i>Customers</button>
+                <button onclick="navigate('reports')" data-nav="reports" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="bar-chart-3" class="w-4 h-4"></i>Reports</button>
+                <button onclick="navigate('settings')" data-nav="settings" class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"><i data-lucide="settings" class="w-4 h-4"></i>Settings</button>
+            </nav>
+            <div class="p-3 border-t border-surface-200 dark:border-surface-800">
+                <button onclick="toggleDarkMode()" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-surface-100 dark:hover:bg-surface-800 transition">
+                    <i data-lucide="moon" class="w-4 h-4" id="themeIcon"></i><span id="themeLabel">Dark Mode</span>
+                </button>
+            </div>
+        </aside>
+
+        <div id="mobileOverlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/50 z-20 hidden lg:hidden"></div>
+
+        <button onclick="toggleSidebar()" id="mobileMenuBtn" class="fixed top-4 left-4 z-10 lg:hidden bg-white dark:bg-surface-800 p-2.5 rounded-lg shadow-md border border-surface-200 dark:border-surface-700">
+            <i data-lucide="menu" class="w-5 h-5"></i>
+        </button>
+
+        <main class="flex-1 h-full overflow-y-auto bg-surface-50 dark:bg-surface-950 w-full relative">
+            
+            <section id="page-dashboard" class="p-6 pt-16 lg:pt-6 fade-in">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-2">
+                    <div>
+                        <h2 class="text-2xl font-bold">Dashboard</h2>
+                        <p class="text-surface-500 text-sm">Welcome back! Here's today's overview.</p>
+                    </div>
+                    <div class="text-sm px-4 py-2 bg-white dark:bg-surface-900 rounded-lg border border-surface-200 dark:border-surface-800 text-surface-600 dark:text-surface-400 font-mono" id="currentDate"></div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+                    <div class="card-hover bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800">
+                        <div class="flex items-center justify-between">
+                            <div class="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center"><i data-lucide="indian-rupee" class="w-5 h-5 text-green-600"></i></div>
+                        </div>
+                        <p class="mt-3 text-2xl font-bold" id="todaySales">₹0</p>
+                        <p class="text-xs text-surface-500">Today's Sales</p>
+                    </div>
+                    <div class="card-hover bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800">
+                        <div class="flex items-center justify-between">
+                            <div class="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center"><i data-lucide="receipt" class="w-5 h-5 text-blue-600"></i></div>
+                        </div>
+                        <p class="mt-3 text-2xl font-bold" id="totalOrders">0</p>
+                        <p class="text-xs text-surface-500">Today's Orders</p>
+                    </div>
+                    <div class="card-hover bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800">
+                        <div class="flex items-center justify-between">
+                            <div class="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center"><i data-lucide="trending-up" class="w-5 h-5 text-purple-600"></i></div>
+                        </div>
+                        <p class="mt-3 text-2xl font-bold" id="monthlyRevenue">₹0</p>
+                        <p class="text-xs text-surface-500">Monthly Revenue</p>
+                    </div>
+                    <div class="card-hover bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800 cursor-pointer" onclick="navigate('inventory')">
+                        <div class="flex items-center justify-between">
+                            <div class="w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center"><i data-lucide="alert-triangle" class="w-5 h-5 text-orange-600"></i></div>
+                        </div>
+                        <p class="mt-3 text-2xl font-bold text-orange-600" id="lowStockCount">0</p>
+                        <p class="text-xs text-surface-500">Low Stock Items</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800">
+                        <h3 class="font-semibold mb-4">Top Selling Items</h3>
+                        <div id="topSellingList" class="space-y-3"></div>
+                    </div>
+                    <div class="bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800">
+                        <h3 class="font-semibold mb-4">Recent Orders</h3>
+                        <div id="recentOrdersList" class="space-y-3"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-pos" class="h-full fade-in hidden">
+                <div class="h-full flex flex-col lg:flex-row pt-14 lg:pt-0">
+                    <div class="flex-1 p-4 overflow-hidden flex flex-col">
+                        <div class="flex items-center gap-3 mb-4">
+                            <button onclick="navigate('dashboard')" class="lg:hidden px-2 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800">
+                                <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                            </button>
+                            <span class="text-lg font-bold flex-1" id="posOrderType">Walk-in Order</span>
+                            <button onclick="clearCart()" class="text-sm px-3 py-1.5 text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 transition font-medium hidden" id="posClearBtn">Clear</button>
+                        </div>
+                        
+                        <div class="flex flex-col sm:flex-row gap-2 mb-4 shrink-0">
+                            <div class="relative flex-1">
+                                <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-surface-400"></i>
+                                <input type="text" id="posSearch" oninput="filterProducts()" placeholder="Search products..." class="w-full pl-9 pr-4 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </div>
+                            <select id="posCategoryFilter" onchange="filterProducts()" class="px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </select>
+                        </div>
+                        
+                        <div id="posProducts" class="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 content-start pb-20 lg:pb-4"></div>
+                    </div>
+
+                    <div class="w-full lg:w-96 bg-white dark:bg-surface-900 border-l border-surface-200 dark:border-surface-800 flex flex-col h-[65vh] lg:h-full fixed lg:static bottom-0 left-0 right-0 z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] lg:shadow-none transition-transform duration-300 transform translate-y-full lg:translate-y-0" id="mobileCart">
+                        <div class="lg:hidden w-full h-8 flex justify-center items-center bg-surface-100 dark:bg-surface-800 rounded-t-2xl cursor-pointer" onclick="toggleMobileCart()">
+                            <div class="w-12 h-1.5 bg-surface-300 dark:bg-surface-600 rounded-full"></div>
+                        </div>
+
+                        <div class="p-4 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between shrink-0">
+                            <h3 class="font-bold text-lg flex items-center gap-2">
+                                <i data-lucide="shopping-bag" class="w-5 h-5"></i> Current Order
+                            </h3>
+                            <span class="text-xs bg-brand-100 dark:bg-brand-900/30 text-brand-700 dark:text-brand-400 px-2.5 py-1 rounded-md font-mono font-bold" id="invoiceNum"></span>
+                        </div>
+                        
+                        <div id="cartItems" class="flex-1 overflow-y-auto p-4 space-y-3">
+                        </div>
+
+                        <div class="p-4 border-t border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-900/50 shrink-0">
+                            <div class="space-y-1.5 mb-4">
+                                <div class="flex justify-between items-center text-sm text-surface-600 dark:text-surface-400">
+                                    <span>Subtotal</span>
+                                    <span id="cartSubtotal" class="font-mono">₹0</span>
+                                </div>
+                                <div class="flex justify-between items-center text-sm text-surface-600 dark:text-surface-400">
+                                    <span class="flex items-center gap-1"><i data-lucide="tags" class="w-3 h-3"></i> Discount (%)</span>
+                                    <input type="number" id="cartDiscountInput" value="0" min="0" max="100" oninput="applyDiscount(this.value)" class="w-16 px-2 py-0.5 text-right rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 focus:outline-none focus:border-brand-500 font-mono font-bold text-brand-600">
+                                </div>
+                                <div id="cartDiscountRow" class="flex justify-between items-center text-sm text-green-600 dark:text-green-500 hidden">
+                                    <span>Discount Amount</span>
+                                    <span id="cartDiscountAmt" class="font-mono">-₹0</span>
+                                </div>
+                                <div class="flex justify-between items-center text-sm text-surface-600 dark:text-surface-400">
+                                    <span>Tax (<span id="cartTaxRateLabel">5</span>%)</span>
+                                    <span id="cartTax" class="font-mono">₹0</span>
+                                </div>
+                                <div class="flex justify-between text-lg font-bold border-t border-surface-200 dark:border-surface-700 pt-2 mt-2">
+                                    <span>Total</span>
+                                    <span id="cartTotal" class="text-brand-600 dark:text-brand-500 font-mono">₹0</span>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-2">
+                                <button onclick="saveAndPrintKOT()" class="py-3 rounded-xl bg-surface-200 dark:bg-surface-800 text-surface-800 dark:text-surface-200 text-sm font-bold hover:bg-surface-300 dark:hover:bg-surface-700 transition flex items-center justify-center gap-2">
+                                    <i data-lucide="printer" class="w-4 h-4"></i> Print KOT
+                                </button>
+                                <button onclick="showCheckoutModal()" class="py-3 rounded-xl bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 flex items-center justify-center gap-2">
+                                    <i data-lucide="credit-card" class="w-4 h-4"></i> Checkout
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="floatingCartBtn" onclick="toggleMobileCart()" class="lg:hidden fixed bottom-6 right-6 bg-brand-500 text-white p-4 rounded-full shadow-xl shadow-brand-500/40 z-10 flex items-center gap-2">
+                        <i data-lucide="shopping-bag" class="w-6 h-6"></i>
+                        <span id="floatingCartCount" class="font-bold">0</span>
+                    </button>
+                </div>
+            </section>
+
+            <section id="page-tables" class="p-6 pt-16 lg:pt-6 fade-in hidden">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold">Table Management</h2>
+                    <div class="flex gap-4 bg-white dark:bg-surface-900 p-2 px-4 rounded-lg border border-surface-200 dark:border-surface-800">
+                        <span class="flex items-center gap-2 text-sm font-medium"><span class="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]"></span>Available</span>
+                        <span class="flex items-center gap-2 text-sm font-medium"><span class="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></span>Occupied</span>
+                    </div>
+                </div>
+                <div id="tablesGrid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"></div>
+            </section>
+
+            <section id="page-orders" class="p-6 pt-16 lg:pt-6 fade-in hidden">
+                <h2 class="text-2xl font-bold mb-6">Orders & Bills History</h2>
+                <div class="bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 overflow-hidden shadow-sm">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-surface-50 dark:bg-surface-800/50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left font-semibold text-surface-600 dark:text-surface-300">Invoice No</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-surface-600 dark:text-surface-300">Date & Time</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-surface-600 dark:text-surface-300">Customer Info</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-surface-600 dark:text-surface-300">Payment</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-surface-600 dark:text-surface-300">Amount</th>
+                                    <th class="px-4 py-3 text-center font-semibold text-surface-600 dark:text-surface-300">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ordersHistoryTable" class="divide-y divide-surface-100 dark:divide-surface-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-menu" class="p-6 pt-16 lg:pt-6 fade-in hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+                    <h2 class="text-2xl font-bold">Menu Management</h2>
+                    <button onclick="showAddProduct()" class="flex items-center justify-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition shadow-lg shadow-brand-500/20">
+                        <i data-lucide="plus" class="w-4 h-4"></i>Add Product
+                    </button>
+                </div>
+                <div id="menuGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+            </section>
+
+            <section id="page-inventory" class="p-6 pt-16 lg:pt-6 fade-in hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+                    <h2 class="text-2xl font-bold">Inventory</h2>
+                    <button onclick="showAddStock(store.products[0]?.id)" class="flex items-center justify-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition shadow-lg shadow-brand-500/20">
+                        <i data-lucide="plus" class="w-4 h-4"></i>Add Stock
+                    </button>
+                </div>
+                <div class="bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 overflow-hidden shadow-sm">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-surface-50 dark:bg-surface-800/50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left font-semibold text-surface-600 dark:text-surface-300">Item</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-surface-600 dark:text-surface-300">Category</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-surface-600 dark:text-surface-300">Stock Level</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-surface-600 dark:text-surface-300">Status</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-surface-600 dark:text-surface-300">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventoryTable" class="divide-y divide-surface-100 dark:divide-surface-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-kot" class="p-6 pt-16 lg:pt-6 fade-in hidden">
+                <h2 class="text-2xl font-bold mb-6">Kitchen Orders (KOT)</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 p-5 shadow-sm">
+                        <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+                            <span class="relative flex h-3 w-3">
+                              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                              <span class="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
+                            </span>
+                            Pending Preparation
+                        </h3>
+                        <div id="kotPending" class="space-y-4"></div>
+                    </div>
+                    <div class="bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 p-5 shadow-sm">
+                        <h3 class="font-bold text-lg mb-4 flex items-center gap-2 text-surface-500">
+                            <span class="w-3 h-3 rounded-full bg-green-500"></span>
+                            Recently Completed
+                        </h3>
+                        <div id="kotCompleted" class="space-y-4"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-customers" class="p-6 pt-16 lg:pt-6 fade-in hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+                    <h2 class="text-2xl font-bold">Customers Database</h2>
+                    <div class="relative w-full sm:w-72">
+                        <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-surface-400"></i>
+                        <input type="text" id="customerSearch" oninput="filterCustomers()" placeholder="Search name or phone..." class="w-full pl-9 pr-4 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                </div>
+                <div id="customersList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+            </section>
+
+            <section id="page-reports" class="p-6 pt-16 lg:pt-6 fade-in hidden">
+                <h2 class="text-2xl font-bold mb-6">Financial Reports</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                    <button onclick="showReport('daily')" class="card-hover bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800 text-left focus:ring-2 focus:ring-brand-500 outline-none">
+                        <div class="w-12 h-12 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-3"><i data-lucide="calendar" class="w-6 h-6 text-blue-600"></i></div>
+                        <h4 class="font-bold text-lg">Daily Report</h4>
+                        <p class="text-sm text-surface-500 mt-1">Today's complete summary</p>
+                    </button>
+                    <button onclick="showReport('weekly')" class="card-hover bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800 text-left focus:ring-2 focus:ring-brand-500 outline-none">
+                        <div class="w-12 h-12 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-3"><i data-lucide="bar-chart" class="w-6 h-6 text-green-600"></i></div>
+                        <h4 class="font-bold text-lg">Weekly Report</h4>
+                        <p class="text-sm text-surface-500 mt-1">Last 7 days performance</p>
+                    </button>
+                    <button onclick="showReport('monthly')" class="card-hover bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800 text-left focus:ring-2 focus:ring-brand-500 outline-none">
+                        <div class="w-12 h-12 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center mb-3"><i data-lucide="pie-chart" class="w-6 h-6 text-purple-600"></i></div>
+                        <h4 class="font-bold text-lg">Monthly Report</h4>
+                        <p class="text-sm text-surface-500 mt-1">Current month overview</p>
+                    </button>
+                </div>
+                <div id="reportContent" class="bg-white dark:bg-surface-900 rounded-xl p-6 border border-surface-200 dark:border-surface-800 hidden shadow-sm"></div>
+            </section>
+
+            <section id="page-settings" class="p-6 pt-16 lg:pt-6 fade-in hidden">
+                <h2 class="text-2xl font-bold mb-6">Settings</h2>
+                <div class="max-w-xl">
+                    <div class="bg-white dark:bg-surface-900 rounded-xl p-6 border border-surface-200 dark:border-surface-800 space-y-5 shadow-sm">
+                        <h3 class="font-bold text-lg border-b border-surface-100 dark:border-surface-800 pb-3">Shop Details & Billing</h3>
+                        
+                        <div class="mb-4">
+                            <label class="text-sm font-medium text-surface-700 dark:text-surface-300 block mb-1.5">Shop Logo</label>
+                            <div class="flex items-center gap-4">
+                                <img id="settingLogoPreview" src="" alt="Logo Preview" class="w-16 h-16 rounded-lg object-contain bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 hidden">
+                                <div class="flex-1">
+                                    <input type="file" id="settingLogoUpload" accept="image/*" class="w-full text-sm text-surface-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 dark:file:bg-brand-900/30 dark:file:text-brand-400">
+                                    <p class="text-xs text-surface-400 mt-1">Upload a small logo (PNG/JPG) to print on receipts.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-sm font-medium text-surface-700 dark:text-surface-300 block mb-1.5">Shop Name</label>
+                                <input type="text" id="settingShopName" class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-surface-700 dark:text-surface-300 block mb-1.5">GST Number</label>
+                                <input type="text" id="settingGst" class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-sm font-medium text-surface-700 dark:text-surface-300 block mb-1.5">Address</label>
+                                <input type="text" id="settingAddress" class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-surface-700 dark:text-surface-300 block mb-1.5">GST Rate (%)</label>
+                                <input type="number" id="settingGstRate" min="0" max="100" class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </div>
+                        </div>
+                        <div class="pt-4 flex justify-end">
+                            <button onclick="saveSettings()" class="px-6 py-2.5 bg-brand-500 text-white rounded-lg text-sm font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/20">Save Configuration</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 hidden p-4 transition-opacity">
+        <div class="bg-white dark:bg-surface-900 rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col shadow-2xl" id="modalContainer">
+            <div id="modalContent" class="overflow-y-auto p-6"></div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2 flex flex-col items-end pointer-events-none"></div>
+
+    <div id="receiptModal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 hidden p-4">
+        <div class="bg-white rounded-xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-4 bg-surface-100 border-b flex justify-between items-center text-black no-print">
+                <h3 class="font-bold">Preview Receipt</h3>
+                <button onclick="closeReceipt()" class="text-surface-500 hover:text-black"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="p-6 overflow-y-auto bg-white" id="receiptContentWrapper">
+                <div id="receiptContent" class="receipt-print text-black bg-white p-2 text-[12px]"></div>
+            </div>
+            <div class="p-4 border-t flex flex-col gap-2 bg-surface-50 no-print" id="receiptActions">
+                <button onclick="window.print()" class="w-full py-2.5 bg-brand-500 text-white rounded-lg text-sm font-bold shadow-md flex justify-center items-center gap-2">
+                    <i data-lucide="printer" class="w-4 h-4"></i> Print Receipt
+                </button>
+                <button id="whatsappShareBtn" class="w-full py-2.5 bg-green-500 text-white rounded-lg text-sm font-bold shadow-md flex justify-center items-center gap-2 hidden">
+                    <i data-lucide="message-circle" class="w-4 h-4"></i> Share on WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'frostbrew_pos_v4';
+        let store = loadStore();
+
+        function loadStore() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if(!parsed.settings) parsed.settings = {shopName:'Frost & Brew', address:'123 Main Street, City', gst:'22AAAAA0000A1Z5', gstRate: 5, logo: null};
+                if(parsed.settings.gstRate === undefined) parsed.settings.gstRate = 5;
+                if(!parsed.customers) parsed.customers = [];
+                if(!parsed.orders) parsed.orders = [];
+                
+                // Ensure 20 tables + 2 Parcel tables exist
+                if (parsed.tables) {
+                    if (!parsed.tables.find(t => t.id === 'P1')) {
+                        parsed.tables.push({id:'P1', name:'Takeaway 1', status:'available', cart:[], type:'parcel'});
+                        parsed.tables.push({id:'P2', name:'Takeaway 2', status:'available', cart:[], type:'parcel'});
+                    }
+                    const regularTablesCount = parsed.tables.filter(t => typeof t.id === 'number' || t.type === 'dine-in').length;
+                    if (regularTablesCount < 20) {
+                        let maxId = 0;
+                        parsed.tables.forEach(t => { if(typeof t.id === 'number' && t.id > maxId) maxId = t.id; });
+                        if(maxId === 0) maxId = regularTablesCount; 
+                        for(let i=maxId+1; i<=20; i++) {
+                            parsed.tables.push({id:i, status:'available', cart:[], type:'dine-in'});
+                        }
+                    }
+                }
+                return parsed;
+            }
+            return getDefaultStore();
+        }
+
+        function getDefaultStore() {
+            return {
+                products: [
+                    {id:1,name:'Vanilla Scoop',category:'Ice Cream',price:60,stock:50,emoji:'🍦'},
+                    {id:2,name:'Chocolate Fudge',category:'Ice Cream',price:80,stock:40,emoji:'🍫'},
+                    {id:3,name:'Strawberry Sundae',category:'Sundae',price:120,stock:30,emoji:'🍓'},
+                    {id:4,name:'Cappuccino',category:'Coffee',price:90,stock:100,emoji:'☕'},
+                    {id:5,name:'Cold Coffee',category:'Coffee',price:110,stock:80,emoji:'🧋'},
+                    {id:6,name:'Classic Burger',category:'Burger',price:130,stock:35,emoji:'🍔'},
+                    {id:7,name:'French Fries',category:'Fries',price:70,stock:60,emoji:'🍟'},
+                    {id:8,name:'Veg Momos',category:'Momos',price:80,stock:45,emoji:'🥟'},
+                    {id:9,name:'Mango Shake',category:'Beverages',price:90,stock:70,emoji:'🥭'}
+                ],
+                orders: [], 
+                tables: [
+                    ...Array.from({length:20}, (_,i) => ({id:i+1, status:'available', cart:[], type:'dine-in'})),
+                    {id:'P1', name:'Takeaway 1', status:'available', cart:[], type:'parcel'},
+                    {id:'P2', name:'Takeaway 2', status:'available', cart:[], type:'parcel'}
+                ],
+                customers: [
+                    {id:1, name:'Rahul Sharma', phone:'9876543210', points:150, visits:12},
+                    {id:2, name:'Priya Patel', phone:'9876543211', points:80, visits:6}
+                ],
+                kot: [], 
+                settings: { shopName: 'Frost & Brew', address: '123 Main Street, City', gst: '22AAAAA0000A1Z5', gstRate: 5, logo: null },
+                invoiceCounter: 1000,
+            };
+        }
+
+        function saveStore() { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }
+        
+        function getTableName(id) {
+            if(!id || id === 'Walk-in') return 'Walk-in';
+            const t = store.tables.find(x => x.id == id);
+            if(t && t.type === 'parcel') return t.name;
+            return `Table ${id}`;
+        }
+
+        let currentPage = 'dashboard';
+        let posCart = []; 
+        let currentTableId = null; 
+        let currentDiscountPct = 0;
+
+        function getCategories() {
+            const cats = new Set(store.products.map(p => p.category));
+            return Array.from(cats).sort();
+        }
+
+        function navigate(page) {
+            document.querySelectorAll('[id^="page-"]').forEach(p => p.classList.add('hidden'));
+            document.getElementById(`page-${page}`).classList.remove('hidden');
+            document.querySelectorAll('[data-nav]').forEach(b => b.classList.remove('active'));
+            document.querySelector(`[data-nav="${page}"]`)?.classList.add('active');
+            currentPage = page;
+            
+            if(window.innerWidth < 1024) {
+                document.getElementById('sidebar').classList.add('-translate-x-full');
+                document.getElementById('mobileOverlay').classList.add('hidden');
+            }
+
+            if(page==='dashboard') renderDashboard();
+            if(page==='pos') initPOS();
+            if(page==='orders') renderOrders();
+            if(page==='menu') renderMenu();
+            if(page==='tables') renderTables();
+            if(page==='inventory') renderInventory();
+            if(page==='kot') renderKOT();
+            if(page==='customers') renderCustomers();
+            if(page==='reports') showReport('daily');
+            if(page==='settings') initSettings();
+            
+            lucide.createIcons();
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('mobileOverlay');
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+        }
+
+        function toggleMobileCart() {
+            const cart = document.getElementById('mobileCart');
+            cart.classList.toggle('translate-y-full');
+        }
+
+        let isDark = localStorage.getItem('fb_dark')==='true';
+        if(isDark) document.documentElement.classList.add('dark');
+        
+        function toggleDarkMode() {
+            isDark = !isDark;
+            document.documentElement.classList.toggle('dark', isDark);
+            localStorage.setItem('fb_dark', isDark);
+            document.getElementById('themeLabel').textContent = isDark ? 'Light Mode' : 'Dark Mode';
+        }
+
+        function toast(msg, type='success') {
+            const c = document.getElementById('toastContainer');
+            const t = document.createElement('div');
+            const color = type === 'success' ? 'bg-green-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600';
+            const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info';
+            
+            t.className = `toast flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-white font-medium text-sm ${color} pointer-events-auto`;
+            t.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4"></i> ${msg}`;
+            c.appendChild(t);
+            lucide.createIcons();
+            setTimeout(() => {
+                t.style.animation = 'slideOut 0.3s ease forwards';
+                setTimeout(() => t.remove(), 300);
+            }, 3000);
+        }
+
+        function openModal(htmlContent) {
+            document.getElementById('modalContent').innerHTML = htmlContent;
+            document.getElementById('modal').classList.remove('hidden');
+            lucide.createIcons();
+        }
+        
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+        }
+        
+        document.getElementById('modal').addEventListener('click', e => {
+            if(e.target.id === 'modal') closeModal();
+        });
+
+        function customConfirm(title, message, actionCode) {
+            const html = `
+                <div class="mb-4">
+                    <h3 class="text-xl font-bold text-red-600 flex items-center gap-2"><i data-lucide="alert-triangle" class="w-6 h-6"></i> ${title}</h3>
+                </div>
+                <p class="text-surface-600 dark:text-surface-300 mb-6 whitespace-pre-line">${message}</p>
+                <div class="flex gap-3">
+                    <button onclick="closeModal()" class="flex-1 py-2.5 bg-surface-200 dark:bg-surface-700 text-surface-800 dark:text-surface-100 rounded-xl font-bold hover:bg-surface-300 dark:hover:bg-surface-600 transition">Cancel</button>
+                    <button onclick="${actionCode}" class="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-500/30">Confirm</button>
+                </div>
+            `;
+            openModal(html);
+        }
+
+        function renderDashboard() {
+            const today = new Date().toDateString();
+            const todayOrders = store.orders.filter(o => new Date(o.date).toDateString() === today);
+            const todaySales = todayOrders.reduce((s,o) => s + o.total, 0);
+            
+            const monthOrders = store.orders.filter(o => new Date(o.date).getMonth() === new Date().getMonth() && new Date(o.date).getFullYear() === new Date().getFullYear());
+            const monthRevenue = monthOrders.reduce((s,o) => s + o.total, 0);
+            
+            const lowStock = store.products.filter(p => p.stock < 20).length;
+
+            document.getElementById('todaySales').textContent = `₹${todaySales.toLocaleString()}`;
+            document.getElementById('totalOrders').textContent = todayOrders.length;
+            document.getElementById('monthlyRevenue').textContent = `₹${monthRevenue.toLocaleString()}`;
+            document.getElementById('lowStockCount').textContent = lowStock;
+            document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'short', year:'numeric'});
+
+            const itemCounts = {};
+            store.orders.forEach(o => o.items.forEach(i => {
+                itemCounts[i.id] = (itemCounts[i.id] || 0) + i.qty;
+            }));
+            const topItems = store.products.map(p => ({...p, sold: itemCounts[p.id]||0})).sort((a,b)=>b.sold-a.sold).slice(0, 5);
+            
+            document.getElementById('topSellingList').innerHTML = topItems.map(p => `
+                <div class="flex items-center justify-between p-2 hover:bg-surface-50 dark:hover:bg-surface-800 rounded-lg transition">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">${p.emoji}</span>
+                        <div>
+                            <p class="text-sm font-bold">${p.name}</p>
+                            <p class="text-xs text-surface-500">${p.sold} sold</p>
+                        </div>
+                    </div>
+                    <span class="text-sm font-mono font-bold text-brand-600 dark:text-brand-400">₹${p.price}</span>
+                </div>
+            `).join('');
+
+            document.getElementById('recentOrdersList').innerHTML = store.orders.slice().reverse().slice(0, 5).map(o => {
+                let paymentDisplay = '';
+                if(o.isSplitPayment) {
+                    paymentDisplay = `Split: ${o.paymentMethod1} & ${o.paymentMethod2}`;
+                } else {
+                    paymentDisplay = o.payment;
+                }
+                
+                return `
+                <div class="flex items-center justify-between p-2 hover:bg-surface-50 dark:hover:bg-surface-800 rounded-lg transition">
+                    <div>
+                        <p class="text-sm font-bold text-brand-600 dark:text-brand-400">${o.invoice}</p>
+                        <p class="text-xs text-surface-500">${new Date(o.date).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm font-mono font-bold">₹${o.total}</p>
+                        <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider bg-surface-200 dark:bg-surface-700 text-surface-800 dark:text-surface-200">${paymentDisplay}</span>
+                    </div>
+                </div>
+            `}).join('') || '<p class="text-sm text-surface-400 py-4">No sales yet.</p>';
+        }
+
+        function initPOS() {
+            const categories = getCategories();
+            const sel = document.getElementById('posCategoryFilter');
+            sel.innerHTML = '<option value="all">All Categories</option>' + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            
+            document.getElementById('posOrderType').textContent = currentTableId ? `${getTableName(currentTableId)} Order` : 'Walk-in Order';
+            document.getElementById('invoiceNum').textContent = currentTableId ? (String(currentTableId).startsWith('P') ? currentTableId : `T${currentTableId}`) : `W/I`;
+            
+            document.getElementById('cartTaxRateLabel').textContent = store.settings.gstRate;
+            
+            filterProducts();
+            renderCart();
+        }
+
+        function filterProducts() {
+            const q = document.getElementById('posSearch').value.toLowerCase();
+            const cat = document.getElementById('posCategoryFilter').value;
+            const filtered = store.products.filter(p => (cat==='all' || p.category===cat) && p.name.toLowerCase().includes(q));
+            
+            document.getElementById('posProducts').innerHTML = filtered.map(p => `
+                <button onclick="addToCart(${p.id})" class="card-hover bg-white dark:bg-surface-900 rounded-2xl p-4 border border-surface-200 dark:border-surface-800 text-center transition hover:border-brand-400 flex flex-col items-center relative overflow-hidden group">
+                    ${p.stock < 10 ? `<span class="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg">Left: ${p.stock}</span>` : ''}
+                    <span class="text-4xl block mb-3 group-hover:scale-110 transition-transform">${p.emoji}</span>
+                    <p class="text-sm font-bold w-full truncate">${p.name}</p>
+                    <p class="text-[11px] text-surface-500 mt-0.5">${p.category}</p>
+                    <div class="mt-2 pt-2 border-t border-surface-100 dark:border-surface-800 w-full">
+                        <p class="text-sm font-bold text-brand-600 dark:text-brand-400">₹${p.price}</p>
+                    </div>
+                </button>
+            `).join('') || '<div class="col-span-full py-10 text-center text-surface-400">No products found</div>';
+        }
+
+        function addToCart(id) {
+            const p = store.products.find(x => x.id === id);
+            if(p.stock <= 0) { toast('Out of stock!', 'error'); return; }
+            
+            const existing = posCart.find(c => c.id === id);
+            if(existing) {
+                if(existing.qty >= p.stock) { toast('Not enough stock', 'error'); return; }
+                existing.qty++;
+            } else {
+                posCart.push({...p, qty: 1, note: ''});
+            }
+            renderCart();
+        }
+
+        function updateCartQty(id, delta) {
+            const item = posCart.find(c => c.id === id);
+            if(!item) return;
+            const p = store.products.find(x => x.id === id);
+            
+            if(delta > 0 && item.qty >= p.stock) { toast('Not enough stock', 'error'); return; }
+            
+            item.qty += delta;
+            if(item.qty <= 0) posCart = posCart.filter(c => c.id !== id);
+            renderCart();
+        }
+
+        function removeFromCart(id) {
+            posCart = posCart.filter(c => c.id !== id);
+            renderCart();
+        }
+
+        function clearCart() {
+            posCart = [];
+            currentTableId = null;
+            currentDiscountPct = 0;
+            const discInput = document.getElementById('cartDiscountInput');
+            if(discInput) discInput.value = 0;
+            initPOS();
+        }
+
+        function applyDiscount(val) {
+            let pct = parseFloat(val);
+            if(isNaN(pct) || pct < 0) pct = 0;
+            if(pct > 100) pct = 100;
+            currentDiscountPct = pct;
+            renderCart();
+        }
+
+        function calculateCart() {
+            const subtotal = posCart.reduce((s,i) => s + (i.price * i.qty), 0);
+            const discountAmt = Math.round(subtotal * (currentDiscountPct / 100));
+            const afterDiscount = subtotal - discountAmt;
+            const taxRate = parseFloat(store.settings.gstRate || 0) / 100;
+            const tax = Math.round(afterDiscount * taxRate);
+            const total = afterDiscount + tax;
+            return { subtotal, discountAmt, tax, total };
+        }
+
+        function showNoteModal(id) {
+            const item = posCart.find(c => c.id === id);
+            if(!item) return;
+            const currentNote = item.note || '';
+            const html = `
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold">Add Note to Item</h3>
+                    <button onclick="closeModal()" class="text-surface-400 hover:text-black dark:hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                <input type="text" id="itemNoteInput" value="${currentNote}" placeholder="e.g. Less spicy, No onion..." class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 mb-4">
+                <button onclick="saveItemNote(${id})" class="w-full py-2.5 bg-brand-500 text-white rounded-lg text-sm font-bold">Save Note</button>
+            `;
+            openModal(html);
+            setTimeout(() => document.getElementById('itemNoteInput').focus(), 100);
+        }
+
+        function saveItemNote(id) {
+            const item = posCart.find(c => c.id === id);
+            if(item) item.note = document.getElementById('itemNoteInput').value;
+            closeModal();
+            renderCart();
+        }
+
+        function renderCart() {
+            const container = document.getElementById('cartItems');
+            const clrBtn = document.getElementById('posClearBtn');
+            const floatingBadge = document.getElementById('floatingCartCount');
+            
+            if(!posCart.length) {
+                container.innerHTML = '<div class="h-full flex flex-col items-center justify-center text-surface-400"><i data-lucide="shopping-cart" class="w-10 h-10 mb-2 opacity-50"></i><p class="text-sm">Cart is empty</p></div>';
+                clrBtn.classList.add('hidden');
+                floatingBadge.textContent = '0';
+            } else {
+                clrBtn.classList.remove('hidden');
+                const totalItems = posCart.reduce((s,i)=>s+i.qty, 0);
+                floatingBadge.textContent = totalItems;
+                container.innerHTML = posCart.map(item => `
+                    <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-100 dark:border-surface-700/50">
+                        <span class="text-2xl">${item.emoji}</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-bold truncate">${item.name}</p>
+                            <p class="text-xs text-surface-500 font-mono">₹${item.price}</p>
+                            ${item.note ? `<p class="text-[10px] text-orange-500 font-medium mt-0.5 leading-tight line-clamp-2">* ${item.note}</p>` : ''}
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <button onclick="showNoteModal(${item.id})" class="p-2 text-surface-400 hover:text-brand-500 transition rounded-lg hover:bg-surface-200 dark:hover:bg-surface-700" title="Add Note">
+                                <i data-lucide="message-square" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="removeFromCart(${item.id})" class="p-2 text-surface-400 hover:text-red-500 transition rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20" title="Remove Item">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-1 bg-white dark:bg-surface-900 rounded-lg border border-surface-200 dark:border-surface-700 p-0.5">
+                            <button onclick="updateCartQty(${item.id},-1)" class="w-7 h-7 rounded-md hover:bg-surface-100 dark:hover:bg-surface-800 flex items-center justify-center text-surface-600 font-bold transition">−</button>
+                            <span class="text-sm font-bold w-6 text-center">${item.qty}</span>
+                            <button onclick="updateCartQty(${item.id},1)" class="w-7 h-7 rounded-md hover:bg-surface-100 dark:hover:bg-surface-800 flex items-center justify-center text-surface-600 font-bold transition">+</button>
+                        </div>
+                        <div class="w-12 text-right">
+                            <span class="text-sm font-bold text-brand-600 dark:text-brand-400">₹${item.price * item.qty}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            const { subtotal, discountAmt, tax, total } = calculateCart();
+            
+            document.getElementById('cartSubtotal').textContent = `₹${subtotal}`;
+            document.getElementById('cartTax').textContent = `₹${tax}`;
+            document.getElementById('cartTotal').textContent = `₹${total}`;
+            
+            const discRow = document.getElementById('cartDiscountRow');
+            if(discountAmt > 0) {
+                discRow.classList.remove('hidden');
+                document.getElementById('cartDiscountAmt').textContent = `-₹${discountAmt}`;
+            } else {
+                discRow.classList.add('hidden');
+            }
+            
+            lucide.createIcons();
+        }
+
+        function saveAndPrintKOT() {
+            if(!posCart.length) { toast('Cart is empty', 'error'); return; }
+            
+            const kot = {
+                id: Date.now().toString().slice(-6),
+                items: posCart.map(i => ({ name: i.name, qty: i.qty, note: i.note })),
+                table: currentTableId || 'Walk-in',
+                time: Date.now(),
+                status: 'pending'
+            };
+            store.kot.unshift(kot);
+            
+            if(currentTableId) {
+                const t = store.tables.find(x => x.id == currentTableId);
+                posCart.forEach(item => {
+                    const ex = t.cart.find(c => c.id === item.id);
+                    if(ex) { 
+                        ex.qty += item.qty; 
+                        ex.note = ex.note ? ex.note + ' | ' + item.note : item.note; 
+                    } else { 
+                        t.cart.push({...item}); 
+                    }
+                });
+                t.status = 'occupied';
+                saveStore();
+                toast(`Sent to kitchen for ${getTableName(currentTableId)}`);
+                printKOTFormat(kot);
+                clearCart();
+                navigate('tables');
+            } else {
+                saveStore();
+                toast(`KOT printed for Walk-in order`);
+                printKOTFormat(kot);
+            }
+        }
+
+        function showCheckoutModal() {
+            if(!posCart.length) { toast('Cart is empty', 'error'); return; }
+            const { subtotal, discountAmt, tax, total } = calculateCart();
+            
+            const html = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold">Complete Sale</h3>
+                    <button onclick="closeModal()" class="text-surface-400 hover:text-black dark:hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                
+                <div class="bg-surface-50 dark:bg-surface-800 rounded-xl p-4 mb-4 text-center">
+                    <p class="text-sm text-surface-500 mb-1">Total Amount Payable</p>
+                    <p class="text-3xl font-bold text-brand-600 dark:text-brand-400 font-mono">₹<span id="checkoutTotalAmount">${total}</span></p>
+                    ${discountAmt > 0 ? `<p class="text-xs text-green-600 font-bold mt-1">Includes ₹${discountAmt} discount!</p>` : ''}
+                </div>
+
+                <div class="space-y-4 max-h-[50vh] overflow-y-auto px-1">
+                    
+                    <!-- Customer Details -->
+                    <div class="bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 rounded-xl p-4">
+                        <h4 class="text-sm font-bold mb-3 flex items-center gap-2"><i data-lucide="user" class="w-4 h-4 text-surface-500"></i> Customer Details (Optional)</h4>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <input type="text" id="checkoutCustName" placeholder="Name" class="w-full px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </div>
+                            <div>
+                                <input type="text" id="checkoutCustPhone" placeholder="Mobile Number" class="w-full px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Payment Mode Selection -->
+                    <div class="bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 rounded-xl p-4">
+                        <div class="flex justify-between items-center mb-3">
+                            <h4 class="text-sm font-bold flex items-center gap-2"><i data-lucide="credit-card" class="w-4 h-4 text-surface-500"></i> Payment Method</h4>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-semibold text-surface-500">Split Payment</span>
+                                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                    <input type="checkbox" name="toggle" id="splitPaymentToggle" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer" onchange="toggleSplitPaymentUI()"/>
+                                    <label for="splitPaymentToggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-surface-300 dark:bg-surface-600 cursor-pointer"></label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Single Payment Section -->
+                        <div id="singlePaymentSection">
+                            <div class="grid grid-cols-3 gap-2">
+                                <button onclick="selectSinglePayment('cash')" id="btnPaySingle-cash" class="pay-btn-single border-2 border-brand-500 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400 py-2.5 rounded-xl font-bold flex flex-col items-center gap-1 transition">
+                                    <i data-lucide="banknote" class="w-4 h-4"></i> Cash
+                                </button>
+                                <button onclick="selectSinglePayment('upi')" id="btnPaySingle-upi" class="pay-btn-single border-2 border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-600 py-2.5 rounded-xl font-bold flex flex-col items-center gap-1 transition">
+                                    <i data-lucide="smartphone" class="w-4 h-4"></i> UPI
+                                </button>
+                                <button onclick="selectSinglePayment('card')" id="btnPaySingle-card" class="pay-btn-single border-2 border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-600 py-2.5 rounded-xl font-bold flex flex-col items-center gap-1 transition">
+                                    <i data-lucide="credit-card" class="w-4 h-4"></i> Card
+                                </button>
+                            </div>
+                            <input type="hidden" id="selectedSinglePayment" value="cash">
+                        </div>
+
+                        <!-- Split Payment Section (Hidden by default) -->
+                        <div id="splitPaymentSection" class="hidden space-y-3">
+                            <div class="grid grid-cols-2 gap-3 items-end">
+                                <div>
+                                    <label class="text-xs font-bold block mb-1 text-surface-500">Method 1</label>
+                                    <select id="splitMethod1" class="w-full px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                        <option value="cash">Cash</option>
+                                        <option value="upi">UPI</option>
+                                        <option value="card">Card</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-xs font-bold block mb-1 text-surface-500">Amount 1 (₹)</label>
+                                    <input type="number" id="splitAmount1" oninput="calculateSplitBalance(${total})" placeholder="0" min="0" max="${total}" class="w-full px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3 items-end">
+                                <div>
+                                    <label class="text-xs font-bold block mb-1 text-surface-500">Method 2</label>
+                                    <select id="splitMethod2" class="w-full px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                                        <option value="upi">UPI</option>
+                                        <option value="cash">Cash</option>
+                                        <option value="card">Card</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-xs font-bold block mb-1 text-surface-500">Amount 2 (Balance)</label>
+                                    <input type="number" id="splitAmount2" readonly value="${total}" class="w-full px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-200 dark:bg-surface-800 text-sm font-mono font-bold text-surface-500 cursor-not-allowed focus:outline-none">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-4 mt-2">
+                        <button onclick="processCheckout()" class="w-full py-3.5 bg-brand-500 text-white rounded-xl text-lg font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30">Confirm Payment</button>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        }
+
+        function selectSinglePayment(method) {
+            document.getElementById('selectedSinglePayment').value = method;
+            document.querySelectorAll('.pay-btn-single').forEach(b => {
+                b.className = 'pay-btn-single border-2 border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-600 py-2.5 rounded-xl font-bold flex flex-col items-center gap-1 transition';
+            });
+            const active = document.getElementById(`btnPaySingle-${method}`);
+            active.className = 'pay-btn-single border-2 border-brand-500 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400 py-2.5 rounded-xl font-bold flex flex-col items-center gap-1 transition';
+            lucide.createIcons();
+        }
+
+        function toggleSplitPaymentUI() {
+            const isSplit = document.getElementById('splitPaymentToggle').checked;
+            const singleSec = document.getElementById('singlePaymentSection');
+            const splitSec = document.getElementById('splitPaymentSection');
+            
+            if(isSplit) {
+                singleSec.classList.add('hidden');
+                splitSec.classList.remove('hidden');
+            } else {
+                singleSec.classList.remove('hidden');
+                splitSec.classList.add('hidden');
+            }
+        }
+
+        function calculateSplitBalance(totalAmount) {
+            const input1 = document.getElementById('splitAmount1');
+            const input2 = document.getElementById('splitAmount2');
+            
+            let val1 = parseFloat(input1.value) || 0;
+            if (val1 > totalAmount) {
+                val1 = totalAmount;
+                input1.value = val1;
+            }
+            
+            const balance = totalAmount - val1;
+            input2.value = balance;
+        }
+
+        function processCheckout() {
+            const { subtotal, discountAmt, tax, total } = calculateCart();
+            
+            // Check Payment Mode (Single or Split)
+            const isSplit = document.getElementById('splitPaymentToggle').checked;
+            let paymentDetails = {};
+
+            if(isSplit) {
+                const method1 = document.getElementById('splitMethod1').value;
+                const method2 = document.getElementById('splitMethod2').value;
+                const amt1 = parseFloat(document.getElementById('splitAmount1').value) || 0;
+                const amt2 = parseFloat(document.getElementById('splitAmount2').value) || 0;
+
+                if (amt1 + amt2 !== total) {
+                    toast('Split amounts do not match total.', 'error');
+                    return;
+                }
+                if (amt1 <= 0 || amt2 <= 0) {
+                     toast('Both split amounts must be greater than 0.', 'error');
+                     return;
+                }
+                if(method1 === method2) {
+                     toast('Select different payment methods for splitting.', 'error');
+                     return;
+                }
+
+                paymentDetails = {
+                    payment: 'split',
+                    isSplitPayment: true,
+                    paymentMethod1: method1,
+                    paymentAmount1: amt1,
+                    paymentMethod2: method2,
+                    paymentAmount2: amt2
+                };
+            } else {
+                paymentDetails = {
+                    payment: document.getElementById('selectedSinglePayment').value,
+                    isSplitPayment: false
+                };
+            }
+
+            // Customer Handling
+            const custName = document.getElementById('checkoutCustName').value.trim();
+            const custPhone = document.getElementById('checkoutCustPhone').value.trim();
+            let customerInfoStr = '';
+
+            if (custName || custPhone) {
+                customerInfoStr = `${custName} ${custPhone ? '('+custPhone+')' : ''}`.trim();
+                
+                // Add or update customer in DB
+                if (custPhone) {
+                    let existingCust = store.customers.find(c => c.phone === custPhone);
+                    if (existingCust) {
+                        existingCust.visits++;
+                        existingCust.points += Math.floor(total * 0.1);
+                        if(custName) existingCust.name = custName; // update name if provided
+                    } else {
+                        store.customers.push({
+                            id: Date.now(),
+                            name: custName || 'Unknown',
+                            phone: custPhone,
+                            points: Math.floor(total * 0.1),
+                            visits: 1
+                        });
+                    }
+                }
+            }
+
+            const invoiceNo = `INV-${store.invoiceCounter++}`;
+            const order = {
+                id: Date.now(),
+                invoice: invoiceNo,
+                items: posCart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price, note: i.note || '' })),
+                subtotal, 
+                discountAmt, 
+                discountPct: currentDiscountPct, 
+                tax, 
+                total,
+                customerInfo: customerInfoStr,
+                date: Date.now(),
+                table: currentTableId,
+                ...paymentDetails
+            };
+
+            // Deduct Stock
+            order.items.forEach(item => {
+                const prod = store.products.find(p => p.id === item.id);
+                if(prod) prod.stock -= item.qty;
+            });
+
+            // Save to DB
+            store.orders.push(order);
+            
+            // Clear Table
+            if(currentTableId) {
+                const t = store.tables.find(x => x.id == currentTableId);
+                t.status = 'available';
+                t.cart = [];
+            }
+
+            saveStore();
+            closeModal();
+            toast('Payment Successful!');
+            
+            printInvoiceFormat(order);
+            
+            clearCart();
+            if(currentPage === 'tables') navigate('tables');
+            else navigate('pos');
+        }
+
+        function renderTables() {
+            document.getElementById('tablesGrid').innerHTML = store.tables.map(t => {
+                const isOccupied = t.status === 'occupied';
+                const total = isOccupied ? t.cart.reduce((s,i) => s + (i.price*i.qty), 0) : 0;
+                const isParcel = t.type === 'parcel';
+                
+                return `
+                <button onclick="handleTableClick('${t.id}')" class="card-hover rounded-2xl p-5 border-2 text-center transition flex flex-col items-center justify-center min-h-[120px] relative overflow-hidden group
+                    ${isOccupied ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800' : 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800'}">
+                    
+                    ${isOccupied ? `<div class="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> Active</div>` : ''}
+                    
+                    <span class="text-3xl mb-2 group-hover:scale-110 transition-transform ${isOccupied ? 'opacity-80' : 'opacity-100'}">${isParcel ? '🛍️' : '🪑'}</span>
+                    <p class="font-bold text-base text-surface-900 dark:text-white">${isParcel ? t.name : `Table ${t.id}`}</p>
+                    
+                    ${isOccupied 
+                        ? `<p class="text-sm font-bold text-red-600 mt-1 font-mono">₹${total}</p>`
+                        : `<p class="text-xs font-medium text-green-600 mt-1">Available</p>`
+                    }
+                </button>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function handleTableClick(id) {
+            const t = store.tables.find(x => x.id == id);
+            if(t.status === 'available') {
+                currentTableId = id;
+                posCart = []; 
+                currentDiscountPct = 0;
+                const discInput = document.getElementById('cartDiscountInput');
+                if(discInput) discInput.value = 0;
+                navigate('pos');
+                toast(`Opened ${getTableName(id)}`);
+            } else {
+                showTableManageModal(id);
+            }
+        }
+
+        function showTableManageModal(id) {
+            const t = store.tables.find(x => x.id == id);
+            const subtotal = t.cart.reduce((s,i) => s + (i.price * i.qty), 0);
+            
+            const html = `
+                <div class="flex justify-between items-center mb-4 border-b border-surface-200 dark:border-surface-700 pb-3">
+                    <h3 class="text-lg font-bold flex items-center gap-2"><i data-lucide="grid" class="w-5 h-5 text-brand-500"></i> Manage ${getTableName(id)}</h3>
+                    <button onclick="closeModal()" class="text-surface-400 hover:text-black dark:hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                
+                <div class="bg-surface-50 dark:bg-surface-800 rounded-lg p-3 mb-4 max-h-60 overflow-y-auto">
+                    <p class="text-xs font-bold text-surface-500 mb-2 uppercase">Current Items</p>
+                    ${t.cart.map(item => `
+                        <div class="flex items-center justify-between text-sm py-2 border-b border-surface-200 dark:border-surface-700 last:border-0">
+                            <div class="flex-1">
+                                <span>${item.qty}x ${item.name}</span>
+                                ${item.note ? `<p class="text-[10px] text-orange-500 font-medium leading-tight mt-0.5">* ${item.note}</p>` : ''}
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="font-mono">₹${item.price * item.qty}</span>
+                                <button onclick="removeTableItem('${id}', ${item.id})" class="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 p-1.5 rounded transition" title="Delete 1 qty">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                    <div class="flex justify-between font-bold text-base mt-2 pt-2 border-t border-surface-300 dark:border-surface-600">
+                        <span>Subtotal</span>
+                        <span class="font-mono text-brand-600 dark:text-brand-400">₹${subtotal}</span>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <button onclick="addItemsToTable('${id}')" class="w-full py-3 bg-surface-200 dark:bg-surface-700 text-surface-800 dark:text-surface-100 rounded-xl font-bold hover:bg-surface-300 dark:hover:bg-surface-600 transition flex justify-center items-center gap-2">
+                        <i data-lucide="plus" class="w-4 h-4"></i> Add More Items (KOT)
+                    </button>
+                    <button onclick="showTransferModal('${id}')" class="w-full py-3 bg-blue-500 text-white rounded-xl font-bold hover:bg-blue-600 transition shadow-lg shadow-blue-500/30 flex justify-center items-center gap-2">
+                        <i data-lucide="arrow-right-left" class="w-4 h-4"></i> Transfer Order
+                    </button>
+                    <button onclick="settleTable('${id}')" class="w-full py-3 bg-brand-500 text-white rounded-xl font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 flex justify-center items-center gap-2">
+                        <i data-lucide="credit-card" class="w-4 h-4"></i> Settle Bill & Checkout
+                    </button>
+                    <div class="pt-2 text-center">
+                        <button onclick="clearTable('${id}')" class="text-xs text-red-500 font-medium hover:underline">Cancel Order & Clear</button>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        }
+
+        function removeTableItem(tableId, itemId) {
+            const t = store.tables.find(x => x.id == tableId);
+            const item = t.cart.find(i => i.id === itemId);
+            if(item) {
+                item.qty--;
+                if(item.qty <= 0) t.cart = t.cart.filter(i => i.id !== itemId);
+            }
+            if(t.cart.length === 0) {
+                t.status = 'available';
+                closeModal();
+            } else {
+                showTableManageModal(tableId); 
+            }
+            saveStore();
+            renderTables();
+        }
+
+        function showTransferModal(fromId) {
+            const availableTables = store.tables.filter(t => t.id != fromId);
+            const html = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold">Transfer ${getTableName(fromId)}</h3>
+                    <button onclick="closeModal()" class="text-surface-400 hover:text-black dark:hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                <div class="mb-4">
+                    <label class="text-sm font-bold block mb-2">Select Destination</label>
+                    <select id="transferTo" class="w-full px-4 py-3 rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                        ${availableTables.map(t => `<option value="${t.id}">${getTableName(t.id)} ${t.status === 'occupied' ? '(Occupied - Will Merge)' : '(Available)'}</option>`).join('')}
+                    </select>
+                </div>
+                <button onclick="confirmTransfer('${fromId}')" class="w-full py-3.5 bg-blue-500 text-white rounded-xl text-lg font-bold hover:bg-blue-600 transition shadow-lg shadow-blue-500/30">Transfer Order</button>
+            `;
+            openModal(html);
+        }
+
+        function confirmTransfer(fromId) {
+            const toId = document.getElementById('transferTo').value;
+            const toT = store.tables.find(x => x.id == toId);
+            let msg = toT.status === 'available' ? `Transfer entire order to ${getTableName(toId)}?` : `Merge this order into the already occupied ${getTableName(toId)}?`;
+            customConfirm('Transfer Order', msg, `executeTransfer('${fromId}', '${toId}')`);
+        }
+
+        function executeTransfer(fromId, toId) {
+            const fromT = store.tables.find(x => x.id == fromId);
+            const toT = store.tables.find(x => x.id == toId);
+            
+            fromT.cart.forEach(item => {
+                const ex = toT.cart.find(c => c.id === item.id);
+                if(ex) {
+                    ex.qty += item.qty;
+                    if(item.note) ex.note = ex.note ? ex.note + ' | ' + item.note : item.note;
+                } else {
+                    toT.cart.push({...item});
+                }
+            });
+
+            fromT.cart = [];
+            fromT.status = 'available';
+            toT.status = 'occupied';
+            
+            saveStore();
+            closeModal();
+            renderTables();
+            toast(`Order transferred to ${getTableName(toId)}`);
+        }
+
+        function addItemsToTable(id) {
+            closeModal();
+            currentTableId = id;
+            posCart = []; 
+            currentDiscountPct = 0;
+            const discInput = document.getElementById('cartDiscountInput');
+            if(discInput) discInput.value = 0;
+            navigate('pos');
+        }
+
+        function settleTable(id) {
+            const t = store.tables.find(x => x.id == id);
+            posCart = [...t.cart]; 
+            currentTableId = id;
+            currentDiscountPct = 0;
+            const discInput = document.getElementById('cartDiscountInput');
+            if(discInput) discInput.value = 0;
+            closeModal();
+            navigate('pos');
+            toast(`${getTableName(id)} loaded. Apply discount or checkout.`);
+        }
+
+        function clearTable(id) {
+            customConfirm('Clear Order', 'Are you sure you want to cancel this order and completely clear it?', `executeClearTable('${id}')`);
+        }
+
+        function executeClearTable(id) {
+            const t = store.tables.find(x => x.id == id);
+            t.status = 'available';
+            t.cart = [];
+            saveStore();
+            closeModal();
+            renderTables();
+            toast('Cleared successfully');
+        }
+
+        function renderOrders() {
+            const table = document.getElementById('ordersHistoryTable');
+            const orders = [...store.orders].reverse();
+            
+            if(orders.length === 0) {
+                table.innerHTML = '<tr><td colspan="6" class="py-10 text-center text-surface-500">No past orders found</td></tr>';
+                return;
+            }
+
+            table.innerHTML = orders.map(o => {
+                let paymentDisplay = '';
+                if(o.isSplitPayment) {
+                    paymentDisplay = `<span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-surface-200 dark:bg-surface-700 text-surface-800 dark:text-surface-200 whitespace-nowrap">SPLIT: ${o.paymentMethod1} & ${o.paymentMethod2}</span>`;
+                } else {
+                    paymentDisplay = `<span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${o.payment==='cash'?'bg-green-100 text-green-700': o.payment==='upi'?'bg-purple-100 text-purple-700':'bg-blue-100 text-blue-700'}">${o.payment}</span>`;
+                }
+
+                return `
+                <tr class="hover:bg-surface-50 dark:hover:bg-surface-800/50 transition">
+                    <td class="px-4 py-3 font-bold text-brand-600 dark:text-brand-400">${o.invoice}</td>
+                    <td class="px-4 py-3 text-sm text-surface-600 dark:text-surface-300 whitespace-nowrap">${new Date(o.date).toLocaleString('en-IN')}</td>
+                    <td class="px-4 py-3 text-sm text-surface-600 dark:text-surface-300 max-w-[150px] truncate" title="${o.customerInfo || '-'}">${o.customerInfo || '-'}</td>
+                    <td class="px-4 py-3">${paymentDisplay}</td>
+                    <td class="px-4 py-3 text-right font-mono font-bold">₹${o.total}</td>
+                    <td class="px-4 py-3">
+                        <div class="flex items-center justify-center gap-2">
+                            <button onclick="reprintOrder(${o.id})" class="p-1.5 text-surface-600 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition" title="Reprint Bill">
+                                <i data-lucide="printer" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="reopenOrder(${o.id})" class="p-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition" title="Edit / Resettle Bill">
+                                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="deleteOrder(${o.id})" class="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition" title="Delete Bill">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `}).join('');
+            lucide.createIcons();
+        }
+
+        function reprintOrder(id) {
+            const order = store.orders.find(o => o.id === id);
+            if(order) printInvoiceFormat(order);
+        }
+
+        function reopenOrder(orderId) {
+            const order = store.orders.find(o => o.id === orderId);
+            if(!order) return;
+            customConfirm('Resettle Invoice', `Are you sure you want to RESETTLE invoice ${order.invoice}?\n\nThis will remove it from today's sales and load it back into the POS cart for editing.`, `executeReopenOrder(${orderId})`);
+        }
+
+        function executeReopenOrder(orderId) {
+            const orderIndex = store.orders.findIndex(o => o.id === orderId);
+            if(orderIndex === -1) return;
+            const order = store.orders.splice(orderIndex, 1)[0]; 
+
+            order.items.forEach(item => {
+                const prod = store.products.find(p => p.id === item.id);
+                if(prod) prod.stock += item.qty;
+            });
+
+            // Revert loyalty points if mobile was attached
+            const phoneMatch = order.customerInfo ? order.customerInfo.match(/\(([^)]+)\)/) : null;
+            if (phoneMatch && phoneMatch[1]) {
+                const phone = phoneMatch[1];
+                let c = store.customers.find(x => x.phone === phone);
+                if(c) {
+                    c.visits = Math.max(0, c.visits - 1);
+                    c.points = Math.max(0, c.points - Math.floor(order.total * 0.1));
+                }
+            }
+
+            posCart = order.items.map(i => ({...i}));
+            currentTableId = null; 
+            currentDiscountPct = order.discountPct || 0;
+            const discInput = document.getElementById('cartDiscountInput');
+            if(discInput) discInput.value = currentDiscountPct;
+
+            saveStore();
+            closeModal();
+            toast(`Invoice ${order.invoice} reopened in POS`);
+            navigate('pos');
+        }
+
+        function deleteOrder(orderId) {
+            const order = store.orders.find(o => o.id === orderId);
+            if(!order) return;
+            customConfirm('Delete Invoice', `Are you sure you want to permanently DELETE invoice ${order.invoice}?\n\nStock will be reverted. This action cannot be undone.`, `executeDeleteOrder(${orderId})`);
+        }
+
+        function executeDeleteOrder(orderId) {
+            const orderIndex = store.orders.findIndex(o => o.id === orderId);
+            if(orderIndex === -1) return;
+            const order = store.orders.splice(orderIndex, 1)[0]; 
+
+            order.items.forEach(item => {
+                const prod = store.products.find(p => p.id === item.id);
+                if(prod) prod.stock += item.qty;
+            });
+
+            // Revert loyalty points
+            const phoneMatch = order.customerInfo ? order.customerInfo.match(/\(([^)]+)\)/) : null;
+            if (phoneMatch && phoneMatch[1]) {
+                const phone = phoneMatch[1];
+                let c = store.customers.find(x => x.phone === phone);
+                if(c) {
+                    c.visits = Math.max(0, c.visits - 1);
+                    c.points = Math.max(0, c.points - Math.floor(order.total * 0.1));
+                }
+            }
+
+            saveStore();
+            closeModal();
+            toast(`Invoice ${order.invoice} deleted permanently`, 'error');
+            renderOrders();
+        }
+
+        function printKOTFormat(kot) {
+            const content = `
+                <div style="text-align:center; margin-bottom:10px">
+                    <p style="font-weight:bold; font-size:16px; margin:0">KOT</p>
+                    <p style="font-size:12px; margin:2px 0">ID: ${kot.id}</p>
+                </div>
+                <div style="border-top: 1px dashed #000; margin: 8px 0"></div>
+                <p style="font-size:14px; font-weight:bold; margin:4px 0">TABLE/TYPE: ${getTableName(kot.table)}</p>
+                <p style="font-size:12px; margin:4px 0">Time: ${new Date(kot.time).toLocaleTimeString('en-IN')}</p>
+                <div style="border-top: 1px dashed #000; margin: 8px 0"></div>
+                <table style="width:100%; text-align:left; font-size:14px">
+                    ${kot.items.map(i=>`
+                        <tr>
+                            <td style="padding:4px 0; vertical-align:top; width:30px;"><b>${i.qty}x</b></td>
+                            <td style="padding:4px 0;">
+                                ${i.name}
+                                ${i.note ? `<div style="font-size:11px; font-weight:normal; margin-top:2px;"><i>Note: ${i.note}</i></div>` : ''}
+                            </td>
+                        </tr>
+                    `).join('')}
+                </table>
+                <div style="border-top: 1px dashed #000; margin: 8px 0"></div>
+            `;
+            document.getElementById('receiptContent').innerHTML = content;
+            document.getElementById('receiptModal').classList.remove('hidden');
+        }
+
+        function printInvoiceFormat(order) {
+            const s = store.settings;
+            const taxRateLabel = s.gstRate !== undefined ? s.gstRate : 5;
+            const logoHTML = s.logo ? `<img src="${s.logo}" style="max-width: 100px; max-height: 80px; display: block; margin: 0 auto 8px auto;">` : '';
+            
+            let paymentStr = order.isSplitPayment 
+                ? `SPLIT: ${order.paymentMethod1.toUpperCase()} (₹${order.paymentAmount1}) & ${order.paymentMethod2.toUpperCase()} (₹${order.paymentAmount2})`
+                : order.payment.toUpperCase();
+
+            const content = `
+                <div style="text-align:center; margin-bottom:12px">
+                    ${logoHTML}
+                    <p style="font-weight:bold; font-size:18px; margin:0">${s.shopName}</p>
+                    <p style="font-size:11px; margin:2px 0">${s.address}</p>
+                    <p style="font-size:11px; margin:2px 0">GST: ${s.gst}</p>
+                </div>
+                <div style="border-top: 1px dashed #000; margin: 8px 0"></div>
+                <p style="font-size:11px; margin:2px 0">Invoice: ${order.invoice}</p>
+                <p style="font-size:11px; margin:2px 0">Date: ${new Date(order.date).toLocaleString('en-IN')}</p>
+                <p style="font-size:11px; margin:2px 0">Payment: ${paymentStr}</p>
+                ${order.table ? `<p style="font-size:11px; margin:2px 0">Order For: ${getTableName(order.table)}</p>` : ''}
+                ${order.customerInfo ? `<p style="font-size:11px; margin:2px 0">Customer: ${order.customerInfo}</p>` : ''}
+                <div style="border-top: 1px dashed #000; margin: 8px 0"></div>
+                <table style="width:100%; font-size:12px; margin-bottom:8px">
+                    <tr style="font-weight:bold"><td>Item</td><td style="text-align:center">Qty</td><td style="text-align:right">Price</td></tr>
+                    ${order.items.map(i=>`<tr><td style="padding-top:4px">${i.name}</td><td style="text-align:center; padding-top:4px">${i.qty}</td><td style="text-align:right; padding-top:4px">${i.price*i.qty}</td></tr>`).join('')}
+                </table>
+                <div style="border-top: 1px dashed #000; margin: 8px 0"></div>
+                <div style="display:flex; justify-content:space-between; font-size:12px; margin:4px 0"><span>Subtotal</span><span>${order.subtotal}</span></div>
+                
+                ${order.discountAmt > 0 ? `<div style="display:flex; justify-content:space-between; font-size:12px; margin:4px 0; color:#16a34a;"><span>Discount (${order.discountPct}%)</span><span>-₹${order.discountAmt}</span></div>` : ''}
+                
+                <div style="display:flex; justify-content:space-between; font-size:12px; margin:4px 0"><span>GST (${taxRateLabel}%)</span><span>${order.tax}</span></div>
+                <div style="border-top: 1px dashed #000; margin: 8px 0"></div>
+                <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:16px; margin:4px 0"><span>TOTAL</span><span>₹${order.total}</span></div>
+                <div style="border-top: 1px dashed #000; margin: 8px 0"></div>
+                <p style="text-align:center; font-size:11px; margin-top:12px">Thank you! Visit again 🍦</p>
+            `;
+            document.getElementById('receiptContent').innerHTML = content;
+            
+            // Format WhatsApp Message
+            let waText = `🧾 *${s.shopName}*\n`;
+            waText += `📍 ${s.address}\n`;
+            if(s.gst) waText += `📄 GST: ${s.gst}\n`;
+            waText += `--------------------------------\n`;
+            waText += `*Invoice:* ${order.invoice}\n`;
+            waText += `*Date:* ${new Date(order.date).toLocaleString('en-IN')}\n`;
+            if(order.customerInfo) waText += `*Customer:* ${order.customerInfo}\n`;
+            waText += `--------------------------------\n`;
+            
+            order.items.forEach(i => {
+                waText += `${i.qty}x ${i.name} - ₹${i.price * i.qty}\n`;
+            });
+            
+            waText += `--------------------------------\n`;
+            waText += `*Subtotal:* ₹${order.subtotal}\n`;
+            if(order.discountAmt > 0) waText += `*Discount:* -₹${order.discountAmt}\n`;
+            waText += `*GST (${taxRateLabel}%):* ₹${order.tax}\n`;
+            waText += `*TOTAL:* ₹${order.total}\n`;
+            waText += `--------------------------------\n`;
+            waText += `Thank you for visiting! 🍦`;
+
+            const waBtn = document.getElementById('whatsappShareBtn');
+            waBtn.classList.remove('hidden');
+            
+            // If phone number exists, prepopulate it
+            let waPhone = '';
+            if(order.customerInfo) {
+                const phoneMatch = order.customerInfo.match(/\(([^)]+)\)/);
+                if (phoneMatch && phoneMatch[1]) {
+                    // Clean phone number (remove spaces, dashes) and assume Indian (+91) if 10 digits
+                    let cleaned = phoneMatch[1].replace(/\D/g, '');
+                    if(cleaned.length === 10) cleaned = '91' + cleaned;
+                    waPhone = cleaned;
+                }
+            }
+
+            waBtn.onclick = function() {
+                const encodedText = encodeURIComponent(waText);
+                let waUrl = '';
+                if(waPhone) {
+                     waUrl = `https://wa.me/${waPhone}?text=${encodedText}`;
+                } else {
+                     waUrl = `https://api.whatsapp.com/send?text=${encodedText}`;
+                }
+                window.open(waUrl, '_blank');
+            };
+
+            document.getElementById('receiptModal').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeReceipt() {
+            document.getElementById('receiptModal').classList.add('hidden');
+        }
+
+        function renderMenu() {
+            document.getElementById('menuGrid').innerHTML = store.products.map(p => `
+                <div class="bg-white dark:bg-surface-900 rounded-xl p-4 border border-surface-200 dark:border-surface-800 shadow-sm flex flex-col">
+                    <div class="flex items-start gap-3 mb-4">
+                        <span class="text-4xl bg-surface-50 dark:bg-surface-800 p-2 rounded-lg">${p.emoji}</span>
+                        <div class="flex-1">
+                            <p class="font-bold text-base line-clamp-1">${p.name}</p>
+                            <span class="inline-block px-2 py-0.5 bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-300 text-[10px] font-bold rounded uppercase mt-1">${p.category}</span>
+                        </div>
+                        <span class="text-lg font-bold text-brand-500 font-mono">₹${p.price}</span>
+                    </div>
+                    <div class="flex gap-2 mt-auto">
+                        <button onclick="showEditProduct(${p.id})" class="flex-1 py-2 text-xs bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 text-surface-700 dark:text-surface-200 rounded-lg font-bold transition flex justify-center items-center gap-1"><i data-lucide="edit-2" class="w-3 h-3"></i> Edit</button>
+                        <button onclick="deleteProduct(${p.id})" class="flex-1 py-2 text-xs bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 rounded-lg font-bold transition flex justify-center items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Delete</button>
+                    </div>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function showAddProduct() {
+            const html = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold">Add New Product</h3>
+                    <button onclick="closeModal()" class="text-surface-400 hover:text-black dark:hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                <form onsubmit="saveProduct(event)" class="space-y-4">
+                    <div><label class="text-sm font-bold block mb-1">Product Name</label><input id="pName" required class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-sm font-bold block mb-1">Category</label>
+                            <input id="pCat" required list="catList" class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Type or select">
+                            <datalist id="catList">${getCategories().map(c=>`<option value="${c}">`).join('')}</datalist>
+                        </div>
+                        <div><label class="text-sm font-bold block mb-1">Price (₹)</label><input id="pPrice" type="number" min="0" required class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label class="text-sm font-bold block mb-1">Initial Stock</label><input id="pStock" type="number" min="0" required class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></div>
+                        <div><label class="text-sm font-bold block mb-1">Emoji / Icon</label><input id="pEmoji" value="🍽️" class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 text-xl"></div>
+                    </div>
+                    <div class="pt-4"><button type="submit" class="w-full py-3 bg-brand-500 text-white rounded-xl text-sm font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/20">Save Product</button></div>
+                </form>`;
+            openModal(html);
+        }
+
+        function showEditProduct(id) {
+            const p = store.products.find(x => x.id === id);
+            const html = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold">Edit Product</h3>
+                    <button onclick="closeModal()" class="text-surface-400 hover:text-black dark:hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                <form onsubmit="saveProduct(event, ${id})" class="space-y-4">
+                    <div><label class="text-sm font-bold block mb-1">Product Name</label><input id="pName" value="${p.name}" required class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-sm font-bold block mb-1">Category</label>
+                            <input id="pCat" value="${p.category}" required list="catList" class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                        </div>
+                        <div><label class="text-sm font-bold block mb-1">Price (₹)</label><input id="pPrice" type="number" value="${p.price}" min="0" required class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label class="text-sm font-bold block mb-1">Stock</label><input id="pStock" type="number" value="${p.stock}" min="0" required class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></div>
+                        <div><label class="text-sm font-bold block mb-1">Emoji / Icon</label><input id="pEmoji" value="${p.emoji}" class="w-full px-4 py-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 text-xl"></div>
+                    </div>
+                    <div class="pt-4"><button type="submit" class="w-full py-3 bg-brand-500 text-white rounded-xl text-sm font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/20">Update Product</button></div>
+                </form>`;
+            openModal(html);
+        }
+
+        function saveProduct(e, id = null) {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('pName').value,
+                category: document.getElementById('pCat').value.trim(),
+                price: +document.getElementById('pPrice').value,
+                stock: +document.getElementById('pStock').value,
+                emoji: document.getElementById('pEmoji').value
+            };
+            
+            if(id) {
+                const idx = store.products.findIndex(x => x.id === id);
+                store.products[idx] = { ...store.products[idx], ...data };
+                toast('Product updated');
+            } else {
+                store.products.push({ id: Date.now(), ...data });
+                toast('Product added');
+            }
+            saveStore();
+            closeModal();
+            renderMenu();
+        }
+
+        function deleteProduct(id) {
+            customConfirm('Delete Product', 'Are you sure you want to delete this product permanently?', `executeDeleteProduct(${id})`);
+        }
+        
+        function executeDeleteProduct(id) {
+            store.products = store.products.filter(x => x.id !== id);
+            saveStore();
+            closeModal();
+            renderMenu();
+            toast('Product deleted', 'error');
+        }
+
+        function renderInventory() {
+            document.getElementById('inventoryTable').innerHTML = store.products.map(p => `
+                <tr class="hover:bg-surface-50 dark:hover:bg-surface-800/50 transition">
+                    <td class="px-4 py-3"><div class="flex items-center gap-3"><span class="text-xl">${p.emoji}</span><span class="font-bold text-sm">${p.name}</span></div></td>
+                    <td class="px-4 py-3 text-xs font-bold text-surface-500 uppercase tracking-wider">${p.category}</td>
+                    <td class="px-4 py-3 font-mono font-bold text-sm">${p.stock} units</td>
+                    <td class="px-4 py-3"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${p.stock<10?'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400':p.stock<25?'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400':'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}">${p.stock<10?'Critical':p.stock<25?'Low':'Good'}</span></td>
+                    <td class="px-4 py-3 text-right"><button onclick="showAddStock(${p.id})" class="p-2 bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400 rounded-lg hover:bg-brand-100 transition inline-flex"><i data-lucide="plus" class="w-4 h-4"></i></button></td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function showAddStock(id) {
+            if(!id) return;
+            const p = store.products.find(x => x.id === id);
+            const html = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold">Add Stock: ${p.name}</h3>
+                    <button onclick="closeModal()" class="text-surface-400 hover:text-black dark:hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                <form onsubmit="saveStock(event, ${id})" class="space-y-4">
+                    <div class="bg-surface-50 dark:bg-surface-800 p-4 rounded-xl flex justify-between items-center">
+                        <span class="text-sm font-bold text-surface-500">Current Stock</span>
+                        <span class="font-mono text-xl font-bold">${p.stock}</span>
+                    </div>
+                    <div>
+                        <label class="text-sm font-bold block mb-2">Quantity to Add</label>
+                        <input id="stockQty" type="number" min="1" required class="w-full px-4 py-3 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 text-lg focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                    <div class="pt-2"><button type="submit" class="w-full py-3 bg-brand-500 text-white rounded-xl text-sm font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/20">Update Inventory</button></div>
+                </form>
+            `;
+            openModal(html);
+        }
+
+        function saveStock(e, id) {
+            e.preventDefault();
+            const p = store.products.find(x => x.id === id);
+            const qty = +document.getElementById('stockQty').value;
+            p.stock += qty;
+            saveStore();
+            closeModal();
+            renderInventory();
+            toast(`Added ${qty} to ${p.name}`);
+        }
+
+        function renderKOT() {
+            const pending = store.kot.filter(k => k.status === 'pending');
+            const completed = store.kot.filter(k => k.status === 'completed').slice(0, 10);
+            
+            const itemHTML = (k) => `
+                <div class="flex justify-between items-start mb-3 border-b border-surface-200 dark:border-surface-700/50 pb-2">
+                    <div>
+                        <span class="px-2 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-xs font-bold text-surface-600 dark:text-surface-300">#${k.id}</span>
+                        <span class="ml-2 font-bold text-sm">${getTableName(k.table)}</span>
+                    </div>
+                    <span class="text-xs font-bold text-surface-500 flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> ${Math.floor((Date.now()-k.time)/60000)}m ago</span>
+                </div>
+                <div class="space-y-1.5 mb-4">
+                    ${k.items.map(i => `
+                        <div class="flex flex-col text-sm border-b border-surface-100 dark:border-surface-800/50 pb-1 last:border-0">
+                            <div class="flex justify-between">
+                                <span class="font-bold">${i.qty}x</span> 
+                                <span class="flex-1 ml-2">${i.name}</span>
+                            </div>
+                            ${i.note ? `<span class="text-[10px] text-orange-500 font-medium ml-6 mt-0.5">* ${i.note}</span>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            document.getElementById('kotPending').innerHTML = pending.length ? pending.map(k => `
+                <div class="bg-orange-50/50 dark:bg-orange-900/10 rounded-xl p-4 border border-orange-200 dark:border-orange-800/50 relative overflow-hidden group">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
+                    ${itemHTML(k)}
+                    <button onclick="completeKOT('${k.id}')" class="w-full py-2 bg-green-500 text-white text-sm rounded-lg font-bold hover:bg-green-600 transition flex justify-center items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Mark Ready</button>
+                </div>
+            `).join('') : '<div class="text-center py-8 text-surface-400 flex flex-col items-center"><i data-lucide="check-circle" class="w-8 h-8 mb-2"></i><p class="text-sm">All caught up!</p></div>';
+
+            document.getElementById('kotCompleted').innerHTML = completed.length ? completed.map(k => `
+                <div class="bg-surface-50 dark:bg-surface-800/50 rounded-xl p-4 border border-surface-200 dark:border-surface-700/50 opacity-75">
+                    ${itemHTML(k)}
+                    <div class="text-center text-xs font-bold text-green-600 flex justify-center items-center gap-1"><i data-lucide="check-circle-2" class="w-4 h-4"></i> Completed</div>
+                </div>
+            `).join('') : '<p class="text-sm text-surface-400 text-center py-4">No recent completions</p>';
+            
+            lucide.createIcons();
+        }
+
+        function completeKOT(id) {
+            const k = store.kot.find(x => x.id === id);
+            if(k) k.status = 'completed';
+            saveStore();
+            renderKOT();
+            toast('Order marked ready');
+        }
+
+        function renderCustomers() {
+            const q = document.getElementById('customerSearch').value.toLowerCase();
+            const filtered = store.customers.filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q));
+            
+            document.getElementById('customersList').innerHTML = filtered.map(c => `
+                <div class="bg-white dark:bg-surface-900 rounded-xl p-5 border border-surface-200 dark:border-surface-800 shadow-sm flex flex-col items-center text-center relative">
+                    <button onclick="deleteCustomer(${c.id})" class="absolute top-3 right-3 p-1.5 text-surface-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition" title="Delete Customer">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                    <div class="w-14 h-14 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-600 font-bold text-xl mb-3 mt-2">${c.name[0]}</div>
+                    <p class="font-bold text-base mb-1">${c.name}</p>
+                    <p class="text-xs text-surface-500 font-mono mb-4">${c.phone}</p>
+                    
+                    <div class="w-full grid grid-cols-2 gap-2 border-t border-surface-100 dark:border-surface-800 pt-3">
+                        <div>
+                            <p class="text-[10px] text-surface-500 uppercase font-bold">Loyalty Pts</p>
+                            <p class="font-bold text-brand-600 dark:text-brand-400">${c.points}</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-surface-500 uppercase font-bold">Total Visits</p>
+                            <p class="font-bold">${c.visits}</p>
+                        </div>
+                    </div>
+                </div>
+            `).join('') || '<div class="col-span-full py-10 text-center text-surface-400">No customers found</div>';
+        }
+        function filterCustomers() { renderCustomers(); }
+
+        function deleteCustomer(id) {
+            const customer = store.customers.find(c => c.id === id);
+            if (!customer) return;
+            
+            customConfirm(
+                'Delete Customer', 
+                `Are you sure you want to permanently delete customer ${customer.name} (${customer.phone})?\n\nThis will remove all their loyalty points and visit history. This action cannot be undone.`, 
+                `executeDeleteCustomer(${id})`
+            );
+        }
+
+        function executeDeleteCustomer(id) {
+            store.customers = store.customers.filter(c => c.id !== id);
+            saveStore();
+            closeModal();
+            renderCustomers();
+            toast('Customer deleted permanently', 'error');
+        }
+
+        function showReport(type) {
+            const el = document.getElementById('reportContent');
+            el.classList.remove('hidden');
+            const now = new Date();
+            let orders, label;
+            
+            if(type==='daily') {
+                orders = store.orders.filter(o => new Date(o.date).toDateString() === now.toDateString());
+                label = 'Today';
+            } else if(type==='weekly') {
+                const week = now.getTime() - 7*86400000;
+                orders = store.orders.filter(o => o.date > week);
+                label = 'Last 7 Days';
+            } else {
+                orders = store.orders.filter(o => new Date(o.date).getMonth() === now.getMonth() && new Date(o.date).getFullYear() === now.getFullYear());
+                label = 'This Month';
+            }
+            
+            const total = orders.reduce((s,o) => s + o.total, 0);
+            const tax = orders.reduce((s,o) => s + (o.tax||0), 0);
+            const discount = orders.reduce((s,o) => s + (o.discountAmt||0), 0);
+            
+            // Re-calculate based on split payments
+            let cash = 0;
+            let upi = 0;
+            let card = 0;
+
+            orders.forEach(o => {
+                if(o.isSplitPayment) {
+                    if(o.paymentMethod1 === 'cash') cash += o.paymentAmount1;
+                    if(o.paymentMethod1 === 'upi') upi += o.paymentAmount1;
+                    if(o.paymentMethod1 === 'card') card += o.paymentAmount1;
+
+                    if(o.paymentMethod2 === 'cash') cash += o.paymentAmount2;
+                    if(o.paymentMethod2 === 'upi') upi += o.paymentAmount2;
+                    if(o.paymentMethod2 === 'card') card += o.paymentAmount2;
+                } else {
+                    if(o.payment === 'cash') cash += o.total;
+                    if(o.payment === 'upi') upi += o.total;
+                    if(o.payment === 'card') card += o.total;
+                }
+            });
+            
+            el.innerHTML = `
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-2 h-8 bg-brand-500 rounded-full"></div>
+                    <h3 class="font-bold text-xl">${label}'s Summary</h3>
+                </div>
+                
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8 bg-surface-50 dark:bg-surface-800/50 p-4 rounded-xl">
+                    <div><p class="text-xs text-surface-500 font-bold uppercase mb-1">Gross Rev</p><p class="text-xl font-bold font-mono text-brand-600 dark:text-brand-400">₹${total}</p></div>
+                    <div><p class="text-xs text-surface-500 font-bold uppercase mb-1">Tax Coll.</p><p class="text-xl font-bold font-mono">₹${tax}</p></div>
+                    <div><p class="text-xs text-surface-500 font-bold uppercase mb-1">Discounts</p><p class="text-xl font-bold font-mono text-green-600">-₹${discount}</p></div>
+                    <div><p class="text-xs text-surface-500 font-bold uppercase mb-1">Orders</p><p class="text-xl font-bold">${orders.length}</p></div>
+                    <div><p class="text-xs text-surface-500 font-bold uppercase mb-1">Avg Ticket</p><p class="text-xl font-bold font-mono">₹${orders.length ? Math.round(total/orders.length) : 0}</p></div>
+                </div>
+
+                <h4 class="font-bold text-sm text-surface-500 uppercase tracking-wider mb-4">Payment Breakdown</h4>
+                <div class="space-y-3">
+                    <div class="flex items-center gap-4 bg-surface-50 dark:bg-surface-800/50 p-3 rounded-lg">
+                        <div class="w-10 h-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center"><i data-lucide="banknote" class="w-5 h-5"></i></div>
+                        <span class="font-bold flex-1">Cash</span>
+                        <span class="font-mono font-bold text-lg">₹${cash}</span>
+                    </div>
+                    <div class="flex items-center gap-4 bg-surface-50 dark:bg-surface-800/50 p-3 rounded-lg">
+                        <div class="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center"><i data-lucide="smartphone" class="w-5 h-5"></i></div>
+                        <span class="font-bold flex-1">UPI</span>
+                        <span class="font-mono font-bold text-lg">₹${upi}</span>
+                    </div>
+                    <div class="flex items-center gap-4 bg-surface-50 dark:bg-surface-800/50 p-3 rounded-lg">
+                        <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center"><i data-lucide="credit-card" class="w-5 h-5"></i></div>
+                        <span class="font-bold flex-1">Card</span>
+                        <span class="font-mono font-bold text-lg">₹${card}</span>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        // Handle Logo Upload via FileReader API
+        document.getElementById('settingLogoUpload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                if(!file.type.startsWith('image/')) {
+                    toast('Please upload an image file.', 'error');
+                    return;
+                }
+                if(file.size > 500000) {
+                    toast('Image is too large. Please keep it under 500KB.', 'error');
+                    return;
+                }
+                
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const base64String = event.target.result;
+                    store.settings.logo = base64String;
+                    
+                    const preview = document.getElementById('settingLogoPreview');
+                    preview.src = base64String;
+                    preview.classList.remove('hidden');
+                    
+                    const sidebarLogo = document.getElementById('sidebarLogo');
+                    sidebarLogo.src = base64String;
+                    sidebarLogo.classList.remove('hidden');
+                    
+                    toast('Logo loaded. Click Save Configuration.');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function initSettings() {
+            document.getElementById('settingShopName').value = store.settings.shopName;
+            document.getElementById('settingAddress').value = store.settings.address;
+            document.getElementById('settingGst').value = store.settings.gst;
+            document.getElementById('settingGstRate').value = store.settings.gstRate !== undefined ? store.settings.gstRate : 5;
+            
+            if(store.settings.logo) {
+                const preview = document.getElementById('settingLogoPreview');
+                preview.src = store.settings.logo;
+                preview.classList.remove('hidden');
+            }
+        }
+
+        function saveSettings() {
+            store.settings.shopName = document.getElementById('settingShopName').value;
+            store.settings.address = document.getElementById('settingAddress').value;
+            store.settings.gst = document.getElementById('settingGst').value;
+            
+            let rate = parseFloat(document.getElementById('settingGstRate').value);
+            if(isNaN(rate) || rate < 0) rate = 0;
+            store.settings.gstRate = rate;
+            
+            document.getElementById('brandName').textContent = store.settings.shopName;
+            
+            saveStore();
+            toast('Settings updated successfully');
+            
+            if(currentPage === 'pos') renderCart();
+        }
+
+        // Initialize App
+        document.getElementById('brandName').textContent = store.settings.shopName;
+        if(store.settings.logo) {
+            const sidebarLogo = document.getElementById('sidebarLogo');
+            sidebarLogo.src = store.settings.logo;
+            sidebarLogo.classList.remove('hidden');
+        }
+        
+        renderDashboard();
+        lucide.createIcons();
+
+    </script>
+</body>
+</html>
